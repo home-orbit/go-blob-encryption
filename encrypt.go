@@ -6,58 +6,45 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"crypto/sha512"
-	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
-	"io/ioutil"
-	"os"
 )
 
-// EncryptFile encrypts the contents of the file at the infile into the file at outfile,
-// using a derived key. The key is written to outkeyfile, replacing any existing file.
-func EncryptFile(infile, outfile, outkeyfile string) error {
-	in, err := os.Open(infile)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
+const (
+	defaultBufferSize = 4096
+)
 
-	out, err := os.Create(outfile)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
+// Writer encrypts the contents of an underlying io.ReadSeeker
+type Writer struct {
+	Source io.ReadSeeker
+	Key    []byte
+}
 
-	var key []byte
-	{
-		sha := sha256.New()
-		if _, err := io.Copy(sha, in); err != nil {
-			return err
-		}
-		hash := sha.Sum(nil)
-		key = hash[:]
-		// Reset input
-		if _, err := in.Seek(0, 0); err != nil {
-			return err
-		}
+// NewWriter computes the Key for source and returns a new Writer
+func NewWriter(source io.ReadSeeker, key []byte) (*Writer, error) {
+	if len(key) != sha256.Size {
+		return nil, fmt.Errorf("Key size is incorrect")
 	}
+	return &Writer{Source: source, Key: key}, nil
+}
 
-	blockCipher, err := aes.NewCipher(key)
+// Encrypt encrypts the contents of the receiver to the output stream.
+func (w *Writer) Encrypt(output io.Writer) error {
+	blockCipher, err := aes.NewCipher(w.Key)
 	if err != nil {
 		return err
 	}
 
-	iv := shaSlice256(key)
-	ctr := cipher.NewCTR(blockCipher, iv[:blockCipher.BlockSize()])
-
+	iv := shaSlice256(w.Key)
 	hmacKey := shaSlice256(iv)
+
+	ctr := cipher.NewCTR(blockCipher, iv[:blockCipher.BlockSize()])
 	mac := hmac.New(sha512.New, hmacKey)
 
-	const bufSize = 4096
-	inBuf := make([]byte, bufSize)
-	outBuf := make([]byte, bufSize)
+	buf := make([]byte, defaultBufferSize)
 	for {
-		l, err := in.Read(inBuf)
+		l, err := w.Source.Read(buf)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				break
@@ -66,19 +53,17 @@ func EncryptFile(infile, outfile, outkeyfile string) error {
 			return err
 		}
 
-		outSlice := outBuf[:l]
-		ctr.XORKeyStream(outSlice, inBuf[:l])
+		slice := buf[:l]
+		// XORKeyStream transforms in-place if the arguments are the same.
+		ctr.XORKeyStream(slice, slice)
 
-		if _, err := mac.Write(outSlice); err != nil {
+		if _, err := mac.Write(slice); err != nil {
 			return err
 		}
-		if _, err := out.Write(outSlice); err != nil {
+		if _, err := output.Write(slice); err != nil {
 			return err
 		}
 	}
-	out.Write(mac.Sum(nil))
-
-	// Store the key as hex, for compatibility and safety.
-	hexKey := hex.EncodeToString(key) + "\n"
-	return ioutil.WriteFile(outkeyfile, []byte(hexKey), 0600)
+	_, err = output.Write(mac.Sum(nil))
+	return err
 }

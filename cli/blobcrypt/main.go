@@ -20,6 +20,39 @@ import (
  * the original file may decrypt and verify the contents.
  */
 
+func encryptFile(infile, outfile, keyfile string) error {
+	in, err := os.Open(infile)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	key, err := blobcrypt.ComputeKey(in)
+	if err != nil {
+		return err
+	}
+
+	// Store the key first; If key can't be saved, there's no point in encrypting source.
+	hexKey := hex.EncodeToString(key) + "\n"
+	if err := ioutil.WriteFile(keyfile, []byte(hexKey), 0600); err != nil {
+		return err
+	}
+
+	// Create a Writer to encrypt the contents
+	writer, err := blobcrypt.NewWriter(in, key)
+	if err != nil {
+		return err
+	}
+
+	out, err := os.Create(outfile)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	return writer.Encrypt(out)
+}
+
 func decryptFile(infile, outfile, hashstr string) error {
 	in, err := os.Open(infile)
 	if err != nil {
@@ -92,7 +125,7 @@ func main() {
 			*keyfile = outPath + ".key"
 		}
 		fmt.Printf("Encoding: %s -> %s / %s\n", inPath, outPath, *keyfile)
-		if err := blobcrypt.EncryptFile(inPath, outPath, *keyfile); err != nil {
+		if err := encryptFile(inPath, outPath, *keyfile); err != nil {
 			panic(err)
 		}
 	} else {
