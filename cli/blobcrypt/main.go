@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/hex"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -18,6 +19,32 @@ import (
  * of the full source file, and any software with the SHA3 of
  * the original file may decrypt and verify the contents.
  */
+
+func decryptFile(infile, outfile, hashstr string) error {
+	in, err := os.Open(infile)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	key, err := hex.DecodeString(hashstr)
+	if err != nil {
+		return err
+	}
+
+	reader, err := blobcrypt.NewReader(in, key)
+	if err != nil {
+		return err
+	}
+
+	out, err := os.Create(outfile)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	return reader.Decrypt(out)
+}
 
 func main() {
 	// Parse command-line arguments. By default, encrypt the file at arg[0]
@@ -81,7 +108,7 @@ func main() {
 			*keyliteral = strings.TrimSpace(string(keyBytes))
 		}
 		fmt.Printf("Decoding: %s -> %s\n", inPath, outPath)
-		if err := blobcrypt.DecryptFile(inPath, outPath, *keyliteral); err != nil {
+		if err := decryptFile(inPath, outPath, *keyliteral); err != nil {
 			panic(err)
 		}
 	}
