@@ -1,4 +1,4 @@
-package main
+package blobcrypt
 
 import (
 	"bytes"
@@ -13,7 +13,10 @@ import (
 	"os"
 )
 
-func decryptFile(infile, outfile, sha256String string) error {
+// DecryptFile decrypts the file at infile to the file at outfile,
+// IFF infile is consistent and the provided sha256String is the correct
+// SHA256 hash of the original file, and therefore the decrypted output
+func DecryptFile(infile, outfile, sha256String string) error {
 	in, err := os.Open(infile)
 	if err != nil {
 		return err

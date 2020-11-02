@@ -1,4 +1,4 @@
-package main
+package blobcrypt
 
 import "crypto/sha256"
 

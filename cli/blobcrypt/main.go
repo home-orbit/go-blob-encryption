@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	blobcrypt "github.com/home-orbit/go-blob-encryption"
 )
 
 /* This package contains library functions for encrypting
@@ -17,15 +19,12 @@ import (
  * the original file may decrypt and verify the contents.
  */
 
-const (
-	defaultKeyFileFlag = "**.key"
-)
-
 func main() {
 	// Parse command-line arguments. By default, encrypt the file at arg[0]
 	flags := flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	flags.Usage = func() {
-		fmt.Println(`Usage: go-blob-encryption [-encrypt|-decrypt] [-keyfile KEYFILE] INFILE OUTFILE`)
+		basename := filepath.Base(os.Args[0])
+		fmt.Println(`Usage: ` + basename + ` [-encrypt|-decrypt] [-keyfile KEYFILE] INFILE OUTFILE`)
 		fmt.Println(`  Only single files may be specified.`)
 		fmt.Println(`  If OUTFILE is a directory, the basename of INFILE is appended.`)
 		fmt.Println(`  When encrypting, keyfile is written to OUTFILE + ".key" by default`)
@@ -66,7 +65,7 @@ func main() {
 			*keyfile = outPath + ".key"
 		}
 		fmt.Printf("Encoding: %s -> %s / %s\n", inPath, outPath, *keyfile)
-		if err := encryptFile(inPath, outPath, *keyfile); err != nil {
+		if err := blobcrypt.EncryptFile(inPath, outPath, *keyfile); err != nil {
 			panic(err)
 		}
 	} else {
@@ -82,7 +81,7 @@ func main() {
 			*keyliteral = strings.TrimSpace(string(keyBytes))
 		}
 		fmt.Printf("Decoding: %s -> %s\n", inPath, outPath)
-		if err := decryptFile(inPath, outPath, *keyliteral); err != nil {
+		if err := blobcrypt.DecryptFile(inPath, outPath, *keyliteral); err != nil {
 			panic(err)
 		}
 	}

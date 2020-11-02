@@ -1,4 +1,4 @@
-package main
+package blobcrypt
 
 import (
 	"crypto/aes"
@@ -13,7 +13,9 @@ import (
 	"os"
 )
 
-func encryptFile(infile, outfile, outkeyfile string) error {
+// EncryptFile encrypts the contents of the file at the infile into the file at outfile,
+// using a derived key. The key is written to outkeyfile, replacing any existing file.
+func EncryptFile(infile, outfile, outkeyfile string) error {
 	in, err := os.Open(infile)
 	if err != nil {
 		return err
