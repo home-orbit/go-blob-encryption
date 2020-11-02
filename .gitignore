@@ -1,0 +1,4 @@
+# Ignore large files, and test keys, in testdata.
+testdata/*.txt
+testdata/*.key
+testdata/*.enc
