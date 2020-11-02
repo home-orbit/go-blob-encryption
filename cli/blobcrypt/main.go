@@ -87,12 +87,28 @@ func decryptFile(infile, outfile, hashstr string) error {
 	return reader.Decrypt(out)
 }
 
+func checkFile(infile, hashstr string) error {
+	in, err := os.Open(infile)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	key, err := hex.DecodeString(hashstr)
+	if err != nil {
+		return err
+	}
+
+	_, err = blobcrypt.CheckKey(in, key)
+	return err
+}
+
 func main() {
 	// Parse command-line arguments. By default, encrypt the file at arg[0]
 	flags := flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	flags.Usage = func() {
 		basename := filepath.Base(os.Args[0])
-		fmt.Println(`Usage: ` + basename + ` [-encrypt|-decrypt] [-keyfile KEYFILE|-key "HEX"] INPUT [OUTPUT]`)
+		fmt.Println(`Usage: ` + basename + ` [-encrypt|-decrypt|-check] [-keyfile KEYFILE|-key "HEX"] INPUT [OUTPUT]`)
 		fmt.Println(`  INPUT must be a regular file to encrypt or decrypt.`)
 		fmt.Println(`  If OUTPUT is a directory, the basename of INFILE is appended.`)
 		fmt.Println(`  If OUTPUT is not provided, stdout will be used.`)
@@ -101,6 +117,7 @@ func main() {
 	}
 	encrypt := flags.Bool("encrypt", false, `Encrypt INPUT into OUTPUT. The default action.`)
 	decrypt := flags.Bool("decrypt", false, `Decrypt INPUT to OUTPUT using key.`)
+	check := flags.Bool("check", false, `Check that INPUT is valid and key is correct. No decryption occurs.`)
 	keyliteral := flags.String("key", "", `The decryption key. If specified, keyfile is ignored.`)
 	keyfile := flags.String("keyfile", "", `File to read or write key. Defaults to OUTPUT.key when encrypting, and INPUT.key when decrypting`)
 
@@ -122,10 +139,10 @@ func main() {
 		}
 	}
 
-	if *encrypt && *decrypt {
-		log.Fatal("Cannot specify both -encrypt and -decrypt")
+	if (*encrypt && *decrypt) || (*encrypt && *check) || (*decrypt && *check) {
+		log.Fatal("Only one of -encrypt, -decrypt, or -check may be specified")
 	}
-	if !(*encrypt || *decrypt) {
+	if !(*encrypt || *decrypt || *check) {
 		*encrypt = true
 	}
 
@@ -134,7 +151,8 @@ func main() {
 			*keyfile = outPath + ".key"
 		}
 		if err := encryptFile(inPath, outPath, *keyfile); err != nil {
-			panic(err)
+			fmt.Fprintf(os.Stderr, "Encryption Failed: %v\n", err)
+			os.Exit(1)
 		}
 	} else {
 		if *keyfile == "" {
@@ -143,13 +161,24 @@ func main() {
 		if *keyliteral == "" {
 			keyBytes, err := ioutil.ReadFile(*keyfile)
 			if err != nil {
-				fmt.Printf("Error opening key file: %v\n", err)
+				fmt.Fprintf(os.Stderr, "Error opening key file: %v\n", err)
 				os.Exit(1)
 			}
 			*keyliteral = strings.TrimSpace(string(keyBytes))
 		}
-		if err := decryptFile(inPath, outPath, *keyliteral); err != nil {
-			panic(err)
+
+		if *decrypt {
+			if err := decryptFile(inPath, outPath, *keyliteral); err != nil {
+				fmt.Fprintf(os.Stderr, "Decryption Failed: %v\n", err)
+				os.Exit(1)
+			}
+		} else if *check {
+			if err := checkFile(inPath, *keyliteral); err != nil {
+				fmt.Fprintf(os.Stderr, "Check Failed: %v\n", err)
+				os.Exit(1)
+			}
+
+			fmt.Println("OK")
 		}
 	}
 }
