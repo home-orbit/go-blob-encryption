@@ -1,7 +1,8 @@
 #!/usr/bin/env sh
 
 # Usage: randomChars.sh SIZE
-#   Outputs SIZE kilobytes of printable ASCII characters filtered from /dev/urandom
-SIZE=$(($1 * 1024))
+#   Outputs SIZE kilobytes of base64 characters from /dev/urandom
+SIZE=$(($1 * 768))
 
-LC_ALL=C tr -dc "A-Za-z0-9 \n\-_" < /dev/urandom | head -c $SIZE
+# base64 is used, as filtering for ASCII characters with tr was highly inefficient
+head -c $SIZE < /dev/urandom | base64

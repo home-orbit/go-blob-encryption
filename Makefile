@@ -15,7 +15,7 @@ unit-test:
 TMPDIR:=$(shell mktemp -d)
 
 integration-test: build
-	# Integration Test: Round-trip a 2MB file of random ASCII, call diff on result.
+	# Integration Test: Round-trip a 2MB file of random chars, call diff on result.
 	@testdata/randomChars.sh 2048 > "$(TMPDIR)/2048.txt"
 	@bin/blobcrypt -encrypt "$(TMPDIR)/2048.txt" "$(TMPDIR)/2048.enc"
 	@bin/blobcrypt -decrypt "$(TMPDIR)/2048.enc" | diff - "$(TMPDIR)/2048.txt"
