@@ -3,7 +3,6 @@ package blobcrypt
 import (
 	"crypto/aes"
 	"crypto/cipher"
-	"errors"
 	"io"
 )
 
@@ -36,25 +35,18 @@ func (r *Reader) Decrypt(w io.Writer) error {
 
 	ctr := cipher.NewCTR(blockCipher, iv[:blockCipher.BlockSize()])
 
-	const bufSize = 4096
-	inBuf := make([]byte, bufSize)
-	outBuf := make([]byte, bufSize)
-	for {
-		l, err := r.Source.Read(inBuf)
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				break
-			}
-			// Error was returned and is not EOF
-			return err
-		}
+	// Ensure that decryption runs in parallel with output.
+	// This provides a minor speedup in casual tests, but is worth taking.
+	cipherStream := NewCipherStream(r.Source, ctr)
+	go cipherStream.Stream()
 
-		outSlice := outBuf[:l]
-		ctr.XORKeyStream(outSlice, inBuf[:l])
-
-		if _, err := w.Write(outSlice); err != nil {
+	// In the main routine, wait for blocks of encoded data to arrive, and write them to disk
+	for buf := range cipherStream.Channel {
+		if _, err := w.Write(buf); err != nil {
 			return err
 		}
 	}
-	return nil
+
+	// If cipherStream exited abnormally, return its error.
+	return cipherStream.Error
 }

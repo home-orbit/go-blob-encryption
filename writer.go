@@ -6,13 +6,12 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"crypto/sha512"
-	"errors"
 	"fmt"
 	"io"
 )
 
 const (
-	defaultBufferSize = 4096
+	defaultBufferSize = 16384
 )
 
 // Writer encrypts the contents of an underlying io.ReadSeeker
@@ -42,28 +41,27 @@ func (w *Writer) Encrypt(output io.Writer) error {
 	ctr := cipher.NewCTR(blockCipher, iv[:blockCipher.BlockSize()])
 	mac := hmac.New(sha512.New, hmacKey)
 
-	buf := make([]byte, defaultBufferSize)
-	for {
-		l, err := w.Source.Read(buf)
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				break
-			}
-			// Error was returned and is not EOF
-			return err
-		}
+	// Ensure that the actual encryption runs in parallel with output.
+	// This is only a +30% speedup in casual tests, but is worth taking.
+	cipherStream := NewCipherStream(w.Source, ctr)
+	go cipherStream.Stream()
 
-		slice := buf[:l]
-		// XORKeyStream transforms in-place if the arguments are the same.
-		ctr.XORKeyStream(slice, slice)
+	// In the main routine, wait for blocks of encoded data to arrive, and write them to disk
+	for buf := range cipherStream.Channel {
+		// According to documentation, Hash.Write never returns an error.
+		mac.Write(buf)
 
-		if _, err := mac.Write(slice); err != nil {
-			return err
-		}
-		if _, err := output.Write(slice); err != nil {
+		if _, err := output.Write(buf); err != nil {
 			return err
 		}
 	}
+
+	// If cipherStream exited abnormally due to a read error, return it
+	if err := cipherStream.Error; err != nil {
+		return err
+	}
+
+	// Otherwise, write the HMAC suffix
 	_, err = output.Write(mac.Sum(nil))
 	return err
 }
