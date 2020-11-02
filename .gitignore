@@ -1,3 +1,6 @@
+# Ignore built binaries
+bin
+
 # Ignore large files, and test keys, in testdata.
 testdata/*.txt
 testdata/*.key
