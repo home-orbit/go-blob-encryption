@@ -44,6 +44,10 @@ func encryptFile(infile, outfile, keyfile string) error {
 		return err
 	}
 
+	if outfile == "" {
+		return writer.Encrypt(os.Stdout)
+	}
+
 	out, err := os.Create(outfile)
 	if err != nil {
 		return err
@@ -70,6 +74,10 @@ func decryptFile(infile, outfile, hashstr string) error {
 		return err
 	}
 
+	if outfile == "" {
+		return reader.Decrypt(os.Stdout)
+	}
+
 	out, err := os.Create(outfile)
 	if err != nil {
 		return err
@@ -84,32 +92,33 @@ func main() {
 	flags := flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	flags.Usage = func() {
 		basename := filepath.Base(os.Args[0])
-		fmt.Println(`Usage: ` + basename + ` [-encrypt|-decrypt] [-keyfile KEYFILE] INFILE OUTFILE`)
-		fmt.Println(`  Only single files may be specified.`)
-		fmt.Println(`  If OUTFILE is a directory, the basename of INFILE is appended.`)
-		fmt.Println(`  When encrypting, keyfile is written to OUTFILE + ".key" by default`)
-		fmt.Println(`  When decrypting, keyfile is read from INFILE + ".key" by default`)
-		fmt.Println(`  To override this behavior, specify -keyfile`)
+		fmt.Println(`Usage: ` + basename + ` [-encrypt|-decrypt] [-keyfile KEYFILE|-key "HEX"] INPUT [OUTPUT]`)
+		fmt.Println(`  INPUT must be a regular file to encrypt or decrypt.`)
+		fmt.Println(`  If OUTPUT is a directory, the basename of INFILE is appended.`)
+		fmt.Println(`  If OUTPUT is not provided, stdout will be used.`)
+		fmt.Println(``)
 		flags.PrintDefaults()
 	}
-	encrypt := flags.Bool("encrypt", false, "Encrypt the input file to output.")
-	decrypt := flags.Bool("decrypt", false, "Decrypt the input file to output.")
-	keyfile := flags.String("keyfile", "", "File to read or write key.")
-	keyliteral := flags.String("key", "", "The decryption key. If specified, keyfile is ignored.")
+	encrypt := flags.Bool("encrypt", false, `Encrypt INPUT into OUTPUT. The default action.`)
+	decrypt := flags.Bool("decrypt", false, `Decrypt INPUT to OUTPUT using key.`)
+	keyliteral := flags.String("key", "", `The decryption key. If specified, keyfile is ignored.`)
+	keyfile := flags.String("keyfile", "", `File to read or write key. Defaults to OUTPUT.key when encrypting, and INPUT.key when decrypting`)
 
 	flags.Parse(os.Args[1:])
 
-	if flags.NArg() < 2 {
+	if flags.NArg() < 1 {
 		flags.Usage()
-		fmt.Println(`Source and Destination files must be specified. Pass "-" to use stdin / stdout`)
+		fmt.Println(`Source and Destination files must be specified.`)
 		os.Exit(1)
 	}
 	inPath := flags.Arg(0)
 	outPath := flags.Arg(1)
-	if stat, err := os.Stat(outPath); err == nil {
-		if stat.IsDir() {
-			inBase := filepath.Base(inPath)
-			outPath = filepath.Join(outPath, inBase)
+	if outPath != "" {
+		if stat, err := os.Stat(outPath); err == nil {
+			if stat.IsDir() {
+				inBase := filepath.Base(inPath)
+				outPath = filepath.Join(outPath, inBase)
+			}
 		}
 	}
 
@@ -124,7 +133,6 @@ func main() {
 		if *keyfile == "" {
 			*keyfile = outPath + ".key"
 		}
-		fmt.Printf("Encoding: %s -> %s / %s\n", inPath, outPath, *keyfile)
 		if err := encryptFile(inPath, outPath, *keyfile); err != nil {
 			panic(err)
 		}
@@ -140,7 +148,6 @@ func main() {
 			}
 			*keyliteral = strings.TrimSpace(string(keyBytes))
 		}
-		fmt.Printf("Decoding: %s -> %s\n", inPath, outPath)
 		if err := decryptFile(inPath, outPath, *keyliteral); err != nil {
 			panic(err)
 		}
