@@ -1,6 +1,7 @@
 package blobcrypt
 
 import (
+	"context"
 	"crypto/aes"
 	"crypto/cipher"
 	"io"
@@ -33,15 +34,16 @@ func (r *Reader) Decrypt(w io.Writer) error {
 		return err
 	}
 
+	// Configure a cancelable context, ensuring goroutines won't be leaked on early return.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	ctr := cipher.NewCTR(blockCipher, iv[:blockCipher.BlockSize()])
 
 	// Ensure that decryption runs in parallel with output.
 	// This provides a minor speedup in casual tests, but is worth taking.
-	cipherStream := NewCipherStream(r.Source, ctr)
-	go cipherStream.Stream()
-
-	// In the main routine, wait for blocks of encoded data to arrive, and write them to disk
-	for buf := range cipherStream.Channel {
+	cipherStream := CipherStream{Source: r.Source, Cipher: ctr}
+	for buf := range cipherStream.Stream(ctx) {
 		if _, err := w.Write(buf); err != nil {
 			return err
 		}

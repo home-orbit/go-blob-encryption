@@ -1,6 +1,7 @@
 package blobcrypt
 
 import (
+	"context"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/hmac"
@@ -38,16 +39,17 @@ func (w *Writer) Encrypt(output io.Writer) error {
 	iv := shaSlice256(w.Key)
 	hmacKey := shaSlice256(iv)
 
+	// Configure a cancelable context, ensuring goroutines won't be leaked on early return.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	ctr := cipher.NewCTR(blockCipher, iv[:blockCipher.BlockSize()])
 	mac := hmac.New(sha512.New, hmacKey)
 
 	// Ensure that the actual encryption runs in parallel with output.
 	// This is only a +30% speedup in casual tests, but is worth taking.
-	cipherStream := NewCipherStream(w.Source, ctr)
-	go cipherStream.Stream()
-
-	// In the main routine, wait for blocks of encoded data to arrive, and write them to disk
-	for buf := range cipherStream.Channel {
+	cipherStream := CipherStream{Source: w.Source, Cipher: ctr}
+	for buf := range cipherStream.Stream(ctx) {
 		// According to documentation, Hash.Write never returns an error.
 		mac.Write(buf)
 
