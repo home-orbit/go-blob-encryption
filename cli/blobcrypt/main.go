@@ -20,14 +20,14 @@ import (
  * the original file may decrypt and verify the contents.
  */
 
-func encryptFile(infile, outfile, keyfile string) error {
+func encryptFile(infile, outfile, cs, keyfile string) error {
 	in, err := os.Open(infile)
 	if err != nil {
 		return err
 	}
 	defer in.Close()
 
-	key, err := blobcrypt.ComputeKey(in)
+	key, err := blobcrypt.ComputeKey(in, cs)
 	if err != nil {
 		return err
 	}
@@ -108,7 +108,7 @@ func main() {
 	flags := flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	flags.Usage = func() {
 		basename := filepath.Base(os.Args[0])
-		fmt.Println(`Usage: ` + basename + ` [-encrypt|-decrypt|-check] [-keyfile KEYFILE|-key "HEX"] INPUT [OUTPUT]`)
+		fmt.Println(`Usage: ` + basename + ` [-encrypt|-decrypt|-check] [-keyfile KEYFILE|-key "HEX"] [-cs "secret"] INPUT [OUTPUT]`)
 		fmt.Println(`  INPUT must be a regular file to encrypt or decrypt.`)
 		fmt.Println(`  If OUTPUT is a directory, the basename of INFILE is appended.`)
 		fmt.Println(`  If OUTPUT is not provided, stdout will be used.`)
@@ -119,6 +119,7 @@ func main() {
 	decrypt := flags.Bool("decrypt", false, `Decrypt INPUT to OUTPUT using key.`)
 	check := flags.Bool("check", false, `Check that INPUT is valid and key is correct. No decryption occurs.`)
 	keyliteral := flags.String("key", "", `The decryption key. If specified, keyfile is ignored.`)
+	cs := flags.String("cs", "", "A Convergence Secret string. For small or sensitive files, a GUID is recommended")
 	keyfile := flags.String("keyfile", "", `File to read or write key. Defaults to OUTPUT.key when encrypting, and INPUT.key when decrypting`)
 
 	flags.Parse(os.Args[1:])
@@ -150,7 +151,7 @@ func main() {
 		if *keyfile == "" {
 			*keyfile = outPath + ".key"
 		}
-		if err := encryptFile(inPath, outPath, *keyfile); err != nil {
+		if err := encryptFile(inPath, outPath, *cs, *keyfile); err != nil {
 			fmt.Fprintf(os.Stderr, "Encryption Failed: %v\n", err)
 			os.Exit(1)
 		}

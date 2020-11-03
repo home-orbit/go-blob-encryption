@@ -16,8 +16,10 @@ func TestRoundTrip(t *testing.T) {
 	}
 	input := bytes.NewReader(randomBytes)
 
+	cs := "6BFDE118-84C0-4E7D-AA07-92ECDD8F5FB8"
+
 	// Compute the source data's key
-	key, err := ComputeKey(input)
+	key, err := ComputeKey(input, cs)
 	if err != nil {
 		t.Fatalf("%v computing key", err)
 	}

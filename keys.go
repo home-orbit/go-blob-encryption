@@ -10,8 +10,17 @@ import (
 
 // ComputeKey returns the encryption key to be used for an unencrypted source,
 // or an error if one occurred.
-func ComputeKey(source io.ReadSeeker) ([]byte, error) {
+//
+// The convergence secret cs is inculded in the key calculation to enhance security.
+// For highly entropic files (photos & video) cs is generally not critical and may be shared.
+// For other large files like software downloads, it may be possible for an attacker to
+// identify an encrypted copy of a known file if cs is omitted; This may or may not matter.
+// For files that are small, sensitive, or may contain unexpectedly low entropy
+// (eg, a large PDF with just a few sensitive characters in it, like a bank PIN)
+// a strong convergence secret like a GUID should always be used.
+func ComputeKey(source io.ReadSeeker, cs string) ([]byte, error) {
 	sha := sha256.New()
+	sha.Write([]byte(cs))
 	if _, err := io.Copy(sha, source); err != nil {
 		return nil, err
 	}

@@ -73,8 +73,9 @@ func encryptFile(atPath string) ([]byte, error) {
     return nil, err
   }
   
-  // Derive the file's key
-  key, err := blobcrypt.CalculateKey(f)
+  // Derive the file's key, without using a convergence secret
+  // This is OK for highly-entropic large media that may be shared, like photos
+  key, err := blobcrypt.CalculateKey(f, "")
   if err != nil {
     return nil, err
   }
