@@ -14,13 +14,13 @@ const (
 	defaultBufferSize = 16384
 )
 
-// Writer encrypts the contents of an underlying io.ReadSeeker
+// Writer encrypts the contents of an underlying io.ReadSeeker.
 type Writer struct {
 	Source io.ReadSeeker
 	Key    []byte
 }
 
-// NewWriter computes the Key for source and returns a new Writer
+// NewWriter creates a writer that encrypts source using key.
 func NewWriter(source io.ReadSeeker, key []byte) (*Writer, error) {
 	if len(key) != sha256.Size {
 		return nil, fmt.Errorf("Key size is incorrect")
