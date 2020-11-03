@@ -1,7 +1,6 @@
 package blobcrypt
 
 import (
-	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
 	"crypto/sha512"
@@ -60,7 +59,7 @@ func CheckKey(source io.ReadSeeker, key []byte) (int64, error) {
 	bodyHMAC := mac.Sum(nil)
 
 	// Require the embedded HMAC to match the one we just calculated.
-	if !bytes.Equal(bodyHMAC, embeddedHMAC) {
+	if !hmac.Equal(bodyHMAC, embeddedHMAC) {
 		return 0, fmt.Errorf("File signature invalid (HMAC)")
 	}
 
