@@ -38,11 +38,12 @@ func (r *Reader) Decrypt(w io.Writer) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	ctr := cipher.NewCTR(blockCipher, iv[:blockCipher.BlockSize()])
+	cipherStream := CipherStream{
+		Source: r.Source,
+		Cipher: cipher.NewCTR(blockCipher, iv[:blockCipher.BlockSize()]),
+	}
 
-	// Ensure that decryption runs in parallel with output.
-	// This provides a minor speedup in casual tests, but is worth taking.
-	cipherStream := CipherStream{Source: r.Source, Cipher: ctr}
+	// Decrypt in parallel with output.
 	for buf := range cipherStream.Stream(ctx) {
 		if _, err := w.Write(buf); err != nil {
 			return err

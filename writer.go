@@ -43,12 +43,13 @@ func (w *Writer) Encrypt(output io.Writer) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	ctr := cipher.NewCTR(blockCipher, iv[:blockCipher.BlockSize()])
-	mac := hmac.New(sha512.New, hmacKey)
+	cipherStream := CipherStream{
+		Source: w.Source,
+		Cipher: cipher.NewCTR(blockCipher, iv[:blockCipher.BlockSize()]),
+	}
 
-	// Ensure that the actual encryption runs in parallel with output.
-	// This is only a +30% speedup in casual tests, but is worth taking.
-	cipherStream := CipherStream{Source: w.Source, Cipher: ctr}
+	// Encrypt input file in parallel with output, and calculate HMAC as we go.
+	mac := hmac.New(sha512.New, hmacKey)
 	for buf := range cipherStream.Stream(ctx) {
 		// According to documentation, Hash.Write never returns an error.
 		mac.Write(buf)
