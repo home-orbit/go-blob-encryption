@@ -36,21 +36,25 @@ func (cs *CipherStream) Stream(ctx context.Context) chan []byte {
 			bufs[i] = make([]byte, cipherStreamBufferSize)
 		}
 
+		canceled := ctx.Done()
+		source := cs.Source
+		cipher := cs.Cipher
+
 		for i := 0; ; i++ {
 			// Choose a buffer that is free, round-robin style
 			// Backpressure ensures this only executes when an idle buffer is available at i.
 			buf := bufs[i%cipherStreamBufferCount]
 
-			l, err := cs.Source.Read(buf)
+			l, err := source.Read(buf)
 
 			if l > 0 {
 				// Encipher the filled part of buffer to Channel.
 				// This is done before sending the buffer, since write bottlenecks are most common.
 				filled := buf[:l]
-				cs.Cipher.XORKeyStream(filled, filled)
+				cipher.XORKeyStream(filled, filled)
 
 				select {
-				case <-ctx.Done():
+				case <-canceled:
 					// Context was canceled by receiver; Return so we don't just block forever.
 					return
 				case channel <- filled:
