@@ -53,6 +53,8 @@ With the same convergence secret, all copies of a source file produce identical 
 > Regardless, if an attacker has the convergence secret or none was used, only four bytes differ between copies, plus four digits of the password. An attacker merely needs any version of the original file, perhaps one provided by the bank for their own account. Depending on particulars, they might need to encrypt 100 million modified copies of that file – 10,000 copies for all the different recovery PINs, and then 10,000 copies of each of those files using every possible 4-digit password. This can be done fast and in-memory, saving just the hashes of the final documents to a rainbow table. At this point, the attacker can simply look up the PIN and document password for an encrypted copy.
 >
 > This is most relevant when the convergence secret is not used, but it could also appear in a corporate context where secrets are shared; For example, storing unexpectedly low-entropy documents from HR might allow a malicious employee to discover information about salary, benefits, recovery passwords, or other protected information. For this reason, it is strongly recommended that per-user or random secrets be used for private documents that contain text.
+>
+> Additional discussion can be found at [Tahoe-LAFS](https://tahoe-lafs.org/hacktahoelafs/drew_perttula.html)
 
 
 ## Command Line Usage
