@@ -13,11 +13,12 @@ import (
 	blobcrypt "github.com/home-orbit/go-blob-encryption"
 )
 
-/* This package contains library functions for encrypting
- * binary data for archival to public storage.
- * Files are encrypted with a key that is exactly the SHA3 hash
- * of the full source file, and any software with the SHA3 of
- * the original file may decrypt and verify the contents.
+/* This is a command-line interface to the blobcrypt library, which
+ * encrypts and decrypts binary data for archival to public storage.
+ * Files are encrypted with a key that is exactly the SHA256 hash
+ * of the convergence secret and full source file.
+ * Any software with the original file and convergence secret may generate
+ * the encryption key and decrypt or verify the encrypted output.
  */
 
 func encryptFile(infile, outfile, cs, keyfile string) error {
