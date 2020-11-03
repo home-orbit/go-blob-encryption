@@ -51,7 +51,8 @@ func CheckKey(source io.ReadSeeker, key []byte) (int64, error) {
 
 	// Read the embedded HMAC value
 	embeddedHMAC := make([]byte, mac.Size())
-	if _, err := source.Read(embeddedHMAC); err != nil {
+	// Docs indicate it's possible to get correct data and EOF in a single call.
+	if l, err := source.Read(embeddedHMAC); l != len(embeddedHMAC) && err != nil {
 		return 0, err
 	}
 

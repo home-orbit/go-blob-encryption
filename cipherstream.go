@@ -49,6 +49,16 @@ func (cs *CipherStream) Stream() {
 		buf := bufs[i%cipherStreamBufferCount]
 
 		l, err := cs.Source.Read(buf)
+
+		// Encipher and send the filled part of buffer to Channel.
+		// Enciphering is most efficient here, since bottlenecks in the write pipeline are common.
+		if l > 0 {
+			filled := buf[:l]
+			cs.Cipher.XORKeyStream(filled, filled)
+			cs.Channel <- filled
+		}
+
+		// io.Read: "Callers should always process the n > 0 bytes returned before considering the error"
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				break
@@ -57,10 +67,5 @@ func (cs *CipherStream) Stream() {
 			return
 		}
 
-		// Encipher and send the filled part of buffer to Channel.
-		// Enciphering is most efficient here, since bottlenecks in the write pipeline are common.
-		filled := buf[:l]
-		cs.Cipher.XORKeyStream(filled, filled)
-		cs.Channel <- filled
 	}
 }
