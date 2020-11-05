@@ -21,28 +21,28 @@ import (
  * the encryption key and decrypt or verify the encrypted output.
  */
 
-func encryptFile(infile, outfile, cs, keyfile string) error {
+func encryptFile(infile, outfile, cs, keyfile string) ([]byte, error) {
 	in, err := os.Open(infile)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer in.Close()
 
 	key, err := blobcrypt.ComputeKey(in, cs)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// Store the key first; If key can't be saved, there's no point in encrypting source.
 	hexKey := hex.EncodeToString(key) + "\n"
 	if err := ioutil.WriteFile(keyfile, []byte(hexKey), 0600); err != nil {
-		return err
+		return nil, err
 	}
 
 	// Create a Writer to encrypt the contents
 	writer, err := blobcrypt.NewWriter(in, key)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	if outfile == "" {
@@ -51,7 +51,7 @@ func encryptFile(infile, outfile, cs, keyfile string) error {
 
 	out, err := os.Create(outfile)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer out.Close()
 
@@ -152,7 +152,8 @@ func main() {
 		if *keyfile == "" {
 			*keyfile = outPath + ".key"
 		}
-		if err := encryptFile(inPath, outPath, *cs, *keyfile); err != nil {
+		// TODO: Decide whether HMAC should be captured and/or displayed
+		if _, err := encryptFile(inPath, outPath, *cs, *keyfile); err != nil {
 			fmt.Fprintf(os.Stderr, "Encryption Failed: %v\n", err)
 			os.Exit(1)
 		}

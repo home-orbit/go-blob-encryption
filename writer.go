@@ -30,10 +30,11 @@ func NewWriter(source io.ReadSeeker, key []byte) (*Writer, error) {
 }
 
 // Encrypt encrypts the contents of the receiver to the output stream.
-func (w *Writer) Encrypt(output io.Writer) error {
+// On successful return, Writer's HMAC will be set to the HMAC of the output.
+func (w *Writer) Encrypt(output io.Writer) ([]byte, error) {
 	blockCipher, err := aes.NewCipher(w.Key)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	iv := shaSlice256(w.Key)
@@ -55,16 +56,17 @@ func (w *Writer) Encrypt(output io.Writer) error {
 		mac.Write(buf)
 
 		if _, err := output.Write(buf); err != nil {
-			return err
+			return nil, err
 		}
 	}
 
 	// If cipherStream exited abnormally due to a read error, return it
 	if err := cipherStream.Error; err != nil {
-		return err
+		return nil, err
 	}
 
 	// Otherwise, write the HMAC suffix
-	_, err = output.Write(mac.Sum(nil))
-	return err
+	hmacFinal := mac.Sum(nil)
+	_, err = output.Write(hmacFinal)
+	return hmacFinal, err
 }
