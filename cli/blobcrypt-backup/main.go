@@ -21,8 +21,9 @@ import (
 
 const (
 	defaultKeystoreName = "blobcrypt-keystore.json"
-	// Filenames use 38 base64 chars for ~228 bits of collision resistance
-	filenameLen = 38
+	// Filenames use 40 base64 chars for 240 bits of collision resistance
+	// On case-insensitive filesystems, this is slightly less than 210 bits.
+	filenameLen = 40
 )
 
 func main() {
