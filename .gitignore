@@ -5,3 +5,6 @@ bin
 testdata/*.txt
 testdata/*.key
 testdata/*.enc
+
+# Ignore VSCode's debug / launch configuration, as it will vary per checkount
+.vscode/launch.json
