@@ -158,53 +158,85 @@ func (k *Keystore) Save(path string) error {
 	return json.NewEncoder(f).Encode(k)
 }
 
+// GetEntry is a threadsafe accessor for Entries
+func (k *Keystore) GetEntry(localHash string) (KeystoreEntry, bool) {
+	k.mutex.Lock()
+	defer k.mutex.Unlock()
+	entry, ok := k.Entries[localHash]
+	return entry, ok
+}
+
 // Resolve converts a slice of ScanResults into KeystoreEntries matched against the Keystore.
 // If a file is not already present in the cache, or may have changed, it is
-// read in its entirety to produce its Key and HMAC.
+// read in its entirety on a worker pool to produce its Key and HMAC.
 // This method does not write encrypted files to disk.
 func (k *Keystore) Resolve(results []ScanResult) ([]KeystoreEntry, error) {
-	entries := make([]KeystoreEntry, 0, len(results))
-	for _, result := range results {
+	// Create a channel and start sending all ScanResults into it.
+	c := make(chan interface{})
+	go func() {
+		defer close(c)
+		for _, result := range results {
+			c <- result
+		}
+	}()
+
+	workerResults := RunWorkers(0, c, func(i interface{}) interface{} {
+		// func(ScanResult) returns KeystoreEntry or error
+		result, isResult := i.(ScanResult)
+		if !isResult {
+			return fmt.Errorf("Unrecognized Input: %v", i)
+		}
+
 		rawLocalHash, err := result.LocalHash()
 		if err != nil {
-			return nil, fmt.Errorf("%w: %s", err, result.Path)
+			return fmt.Errorf("%w: %s", err, result.Path)
 		}
 		localHash := hex.EncodeToString(rawLocalHash)
 
-		if entry, ok := k.Entries[localHash]; ok {
+		if entry, ok := k.GetEntry(localHash); ok {
 			// No need to read the file, since LocalHash matches
-			entries = append(entries, entry)
+			return entry
 		}
 
 		// Create a new entry for this file
 		f, err := os.Open(result.Path)
 		if err != nil {
-			return nil, fmt.Errorf("%w: %s", err, result.Path)
+			return fmt.Errorf("%w: %s", err, result.Path)
 		}
 
 		key, err := blobcrypt.ComputeKey(f, result.CS)
 		if err != nil {
-			return nil, err
+			return err
 		}
 
 		writer, err := blobcrypt.NewWriter(f, key)
 		if err != nil {
-			return nil, err
+			return err
 		}
 
 		hmac, err := writer.Encrypt(ioutil.Discard)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		var hmacFixed HMAC512
 		copy(hmacFixed[:], hmac)
 
-		entries = append(entries, KeystoreEntry{
+		return KeystoreEntry{
 			Path:      result.Path,
 			Key:       key,
 			HMAC:      hmacFixed,
 			LocalHash: localHash,
-		})
+		}
+	})
+
+	entries := make([]KeystoreEntry, 0, len(results))
+	for _, wResult := range workerResults {
+		switch obj := wResult.(type) {
+		case KeystoreEntry:
+			entries = append(entries, obj)
+		case error:
+			return nil, obj
+		}
 	}
 
 	return entries, nil
