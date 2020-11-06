@@ -43,6 +43,11 @@ type KeystoreDiff struct {
 	Remove []KeystoreEntry
 }
 
+// IsEmpty returns true when KeystoreDiff contains no actionable changes.
+func (d *KeystoreDiff) IsEmpty() bool {
+	return len(d.Change) == 0 && len(d.Remove) == 0
+}
+
 // Diff replaces all entries under the given path with the given entries.
 // Returns a KeystoreDiff containing updated and removed entries under path.
 // If an entry has the same LocalHash as an entry in the cache, it is not included in the diff.

@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
-	"sync"
 
 	blobcrypt "github.com/home-orbit/go-blob-encryption"
 )
@@ -85,60 +83,76 @@ func main() {
 	// Get prospective changeset containing items to update or delete
 	diff := keystore.Diff(inPath, entries)
 
-	// Create a channel to supply updates to a worker pool
-	updateInput := make(chan KeystoreEntry, 10)
-	var group sync.WaitGroup
+	if diff.IsEmpty() {
+		fmt.Println("No changes detected.")
+		os.Exit(0)
+	}
 
-	changeCount := len(diff.Change)
-	group.Add(changeCount)
-	if changeCount > 0 {
-		for i := 0; i < runtime.NumCPU(); i++ {
-			go func() {
-				for entry := range updateInput {
-					// Check if the file needs to be backed up, looking for its unique filename in outPath.
-					outFilePath := filepath.Join(outPath, entry.HMAC.URLChars(filenameLen))
-
-					if _, err := os.Stat(outFilePath); os.IsNotExist(err) {
-						// Encrypt files that don't exist in the output directory
-						sourceFile, err := os.Open(entry.Path)
-						if err != nil {
-							panic(err)
-						}
-
-						outFile, err := os.Create(outFilePath)
-						if err != nil {
-							panic(err)
-						}
-
-						writer := blobcrypt.Writer{
-							Source: sourceFile,
-							Key:    entry.Key,
-						}
-
-						// TODO: Write output files atomically
-						outputHMAC, err := writer.Encrypt(outFile)
-						if !hmac.Equal(entry.HMAC[:], outputHMAC) {
-							panic(err)
-						}
-					}
-					// Exit the change group once for each file
-					group.Done()
-				}
-			}()
+	// Create a channel to send KeystoreEntry structs to a worker pool
+	updates := make(chan interface{})
+	go func() {
+		defer close(updates)
+		// Send each change from the diff to the worker pool channel
+		for _, updated := range diff.Change {
+			updates <- updated
 		}
-	}
+	}()
 
-	for _, updated := range diff.Change {
-		fmt.Printf("Updating %s (%s)\n", updated.HMAC.URLChars(filenameLen), updated.Path)
-		updateInput <- updated
+	// Run a set of parallel workers and collect their return values
+	errs := RunWorkers(0, updates, func(i interface{}) interface{} {
+		// func(KeystoreEntry) returns error or nil
+		entry, isEntry := i.(KeystoreEntry)
+		if !isEntry {
+			return fmt.Errorf("Unrecognized Input: %v", i)
+		}
+		filename := entry.HMAC.URLChars(filenameLen)
+
+		fmt.Printf("Updating %s (%s)\n", filename, entry.Path)
+
+		// Check if the file needs to be backed up, looking for its unique filename in outPath.
+		outFilePath := filepath.Join(outPath, filename)
+
+		if _, err := os.Stat(outFilePath); os.IsNotExist(err) {
+			// Encrypt files that don't exist in the output directory
+			sourceFile, err := os.Open(entry.Path)
+			if err != nil {
+				return err
+			}
+
+			outFile, err := os.Create(outFilePath)
+			if err != nil {
+				return err
+			}
+
+			writer := blobcrypt.Writer{
+				Source: sourceFile,
+				Key:    entry.Key,
+			}
+
+			// TODO: Write output files atomically
+			outputHMAC, err := writer.Encrypt(outFile)
+			if !hmac.Equal(entry.HMAC[:], outputHMAC) {
+				return err
+			}
+		}
+		return nil
+	})
+
+	// Log any errors once the worker pool exits
+	if len(errs) > 0 {
+		for _, err := range errs {
+			fmt.Fprintln(os.Stderr, err)
+		}
+		fmt.Fprintln(os.Stderr, "Errors occurred, not updating keystore.")
+		os.Exit(1)
 	}
-	// TODO: Handle errors from parallel processing (instead of panicking)
-	group.Wait()
 
 	// The 'Remove' part of the diff is not yet actionable; We must commit first, then filter for garbage.
-
 	keystore.Commit(diff)
-	defer keystore.Save(*keyfile)
+	if err := keystore.Save(*keyfile); err != nil {
+		fmt.Fprintln(os.Stderr, "FATAL: Could not update Keystore file.")
+		os.Exit(1)
+	}
 
 	// Now that keystore is current, get a list of all HMACs that are still valid.
 	// Remember that files may exist in the backup set that are not part of the current directory.
