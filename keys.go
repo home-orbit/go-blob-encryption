@@ -8,6 +8,11 @@ import (
 	"io"
 )
 
+const (
+	// KeySize is the size of a symmetric encryption key (equal to sha256.Size)
+	KeySize = sha256.Size
+)
+
 // ComputeKey returns the encryption key to be used for an unencrypted source,
 // or an error if one occurred.
 //

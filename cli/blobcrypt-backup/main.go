@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/hmac"
+	"crypto/rand"
 	"flag"
 	"fmt"
 	"os"
@@ -26,11 +27,18 @@ const (
 	filenameLen = 40
 )
 
+// logFatal logs formatted output to Stderr and exits with an error code of 1.
+func logFatal(format string, values ...interface{}) {
+	fmt.Fprintf(os.Stderr, format+"\n", values...)
+	os.Exit(1)
+}
+
 func main() {
 	// Parse command-line arguments. By default, encrypt the file at arg[0]
 	flags := flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	userHomeDir, _ := os.UserHomeDir()
 	keyfile := flags.String("keyfile", filepath.Join(userHomeDir, defaultKeystoreName), "Path to the keystore file.")
+	pubkey := flags.String("pubkey", "", "Path to an RSA public key PEM. When present, keystore is added to the backup set using OAEP encryption")
 
 	flags.Parse(os.Args[1:])
 
@@ -51,16 +59,9 @@ func main() {
 	}
 	os.MkdirAll(outPath, 0755)
 
-	// TODO: Read secrets from a file rather than recreating each time
-	secrets := make(map[string]string)
-	{
-		private := filepath.Join(inPath, "private/")
-		// Dummy uuid for testing
-		secrets[private] = "10D9879E-D074-4F51-ADE7-6944E6733691"
-	}
-
+	// TODO: Read secrets from a configuration file
 	scanner := Scanner{
-		Secrets: secrets,
+		Secrets: make(map[string]string),
 	}
 
 	// Scan to get os.FileInfo and the Convergence Secret for the new file set.
@@ -144,15 +145,65 @@ func main() {
 		for _, err := range errs {
 			fmt.Fprintln(os.Stderr, err)
 		}
-		fmt.Fprintln(os.Stderr, "Errors occurred, not updating keystore.")
-		os.Exit(1)
+		logFatal("Errors occurred, not updating keystore.")
 	}
 
 	// The 'Remove' part of the diff is not yet actionable; We must commit first, then filter for garbage.
 	keystore.Commit(diff)
 	if err := keystore.Save(*keyfile); err != nil {
-		fmt.Fprintln(os.Stderr, "FATAL: Could not update Keystore file.")
-		os.Exit(1)
+		logFatal("Could not update Keystore file.")
+	}
+
+	if *pubkey != "" {
+		// Encrypt keystore with a fully random key, and write a copy of that key
+		// to a corresponding file with RSA OAEP asymmetric encryption.
+		// Only the private key holder may decrypt the random key used to access the keystore.
+
+		// TODO: Provide options for the keystore and/or its keyfile to be placed in arbitrary location(s).
+
+		// Load the public key from the given file. Key must be at least minRSAKeySize.
+		rsaPubkey, err := LoadPublicKey(*pubkey)
+		if err != nil {
+			logFatal(err.Error())
+		}
+
+		// Read from crypto/rand.Reader to create a random symmetric key.
+		randomKey := make([]byte, blobcrypt.KeySize)
+		if n, err := rand.Reader.Read(randomKey); n != blobcrypt.KeySize {
+			logFatal("Could not read enough random bytes for key")
+		} else if err != nil {
+			logFatal(err.Error())
+		}
+
+		dstPath := filepath.Join(outPath, "index")
+		dstKeyPath := filepath.Join(outPath, "index.key")
+
+		// First, encrypt the index key to a file.
+		// If this fails, there's no point in encrypting keystore with it.
+		if err := EncryptKey(randomKey, dstKeyPath, rsaPubkey); err != nil {
+			logFatal(err.Error())
+		}
+
+		sourceFile, err := os.Open(*keyfile)
+		if err != nil {
+			logFatal(err.Error())
+		}
+
+		outFile, err := os.Create(dstPath)
+		if err != nil {
+			logFatal(err.Error())
+		}
+
+		writer := blobcrypt.Writer{
+			Source: sourceFile,
+			Key:    randomKey,
+		}
+
+		// TODO: Write output files atomically
+		_, err = writer.Encrypt(outFile)
+		if err != nil {
+			logFatal(err.Error())
+		}
 	}
 
 	// Now that keystore is current, get a list of all HMACs that are still valid.
