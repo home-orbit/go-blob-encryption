@@ -21,7 +21,7 @@ func RunWorkers(n int, c chan interface{}, fn func(interface{}) interface{}) []i
 		}
 	}
 
-	// Start a number of workers which will exit when the context does.
+	// Start a number of workers which will exit when the channel is closed.
 	for i := 0; i < n; i++ {
 		group.Add(1)
 		go func() {
@@ -31,6 +31,9 @@ func RunWorkers(n int, c chan interface{}, fn func(interface{}) interface{}) []i
 				switch val := fn(input).(type) {
 				case nil:
 					// Do not collect nil values
+					// IMPORTANT: Only the untyped nil literal is omitted, eg `return nil`.
+					// If a struct or interface pointer that contains nil is returned,
+					// such 'typed nil' values WILL be added to the output slice below.
 				default:
 					mutex.Lock()
 					results = append(results, val)
