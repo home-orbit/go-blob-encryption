@@ -1,9 +1,6 @@
 package main
 
 import (
-	"crypto/sha256"
-	"encoding/binary"
-	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -121,35 +118,4 @@ func (s *Scanner) Scan(dir string) ([]ScanResult, error) {
 	})
 
 	return allResults, err
-}
-
-// LocalHash returns a hash built from local metadata state, or an error if one occurred.
-// This method is conservative and could produce different modification codes for unchanged files.
-func (r *ScanResult) LocalHash() ([]byte, error) {
-	if r.Error != nil {
-		return nil, fmt.Errorf("Invalid ScanInfo: %w", r.Error)
-	}
-
-	info := r.Info
-	if info == nil {
-		return nil, fmt.Errorf("ScanResult is uninitialized")
-	}
-
-	modTimeBytes, err := info.ModTime().MarshalBinary()
-	if err != nil {
-		return nil, err
-	}
-	size := info.Size()
-	var sizeBytes = make([]byte, binary.Size(size))
-	binary.PutVarint(sizeBytes, size)
-
-	hash := sha256.New()
-	// hash.Write never returns an error (per Docs)
-	hash.Write([]byte(r.CS))
-	hash.Write([]byte(r.Path))
-	hash.Write(modTimeBytes)
-	hash.Write(sizeBytes)
-
-	hashed := hash.Sum(nil)
-	return hashed[:], nil
 }

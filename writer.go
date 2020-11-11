@@ -5,7 +5,6 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/hmac"
-	"crypto/sha256"
 	"crypto/sha512"
 	"fmt"
 	"io"
@@ -23,7 +22,7 @@ type Writer struct {
 
 // NewWriter creates a writer that encrypts source using key.
 func NewWriter(source io.ReadSeeker, key []byte) (*Writer, error) {
-	if len(key) != sha256.Size {
+	if len(key) != KeySize {
 		return nil, fmt.Errorf("Key size is incorrect")
 	}
 	return &Writer{Source: source, Key: key}, nil

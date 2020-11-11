@@ -1,9 +1,10 @@
 package main
 
 import (
-	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"os"
 	"strings"
@@ -15,13 +16,14 @@ import (
 // Keystore defines a file that persists state across backups.
 // Keystore files should never be backed up to a public location.
 type Keystore struct {
-	Entries map[string]KeystoreEntry
+	Header  struct{} // For future use
+	Entries map[LocalHash]KeystoreEntry
 	mutex   sync.Mutex
 }
 
 // KeystoreEntry holds change-detection and encryption info for a file.
 type KeystoreEntry struct {
-	LocalHash string
+	LocalHash LocalHash
 	Path      string
 	Key       []byte
 	HMAC      HMAC512
@@ -52,7 +54,7 @@ func (k *Keystore) Diff(path string, entries []KeystoreEntry) KeystoreDiff {
 	}
 
 	// Add the LocalHash for all incoming entries to a map
-	inputMap := make(map[string]struct{}, len(entries))
+	inputMap := make(map[LocalHash]struct{}, len(entries))
 	for idx := range entries {
 		inputMap[entries[idx].LocalHash] = struct{}{}
 	}
@@ -131,7 +133,22 @@ func (k *Keystore) Load(path string) error {
 	}
 	defer f.Close()
 
-	return json.NewDecoder(f).Decode(k)
+	decoder := json.NewDecoder(f)
+	if err := decoder.Decode(&k.Header); err != nil {
+		return err
+	}
+	for {
+		var entry KeystoreEntry
+		if err := decoder.Decode(&entry); err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			return err
+		}
+		k.Entries[entry.LocalHash] = entry
+	}
+
+	return nil
 }
 
 // Save writes the Keystore to a file at the given path
@@ -145,11 +162,22 @@ func (k *Keystore) Save(path string) error {
 	}
 	defer f.Close()
 
-	return json.NewEncoder(f).Encode(k)
+	// TODO: Write file atomically
+	encoder := json.NewEncoder(f)
+	if err := encoder.Encode(k.Header); err != nil {
+		return err
+	}
+	for _, entry := range k.Entries {
+		if err := encoder.Encode(entry); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // GetEntry is a threadsafe accessor for Entries
-func (k *Keystore) GetEntry(localHash string) (KeystoreEntry, bool) {
+func (k *Keystore) GetEntry(localHash LocalHash) (KeystoreEntry, bool) {
 	k.mutex.Lock()
 	defer k.mutex.Unlock()
 	entry, ok := k.Entries[localHash]
@@ -177,11 +205,10 @@ func (k *Keystore) Resolve(results []ScanResult) ([]KeystoreEntry, error) {
 			return fmt.Errorf("Unrecognized Input: %v", i)
 		}
 
-		rawLocalHash, err := result.LocalHash()
-		if err != nil {
+		var localHash LocalHash
+		if err := localHash.Set(result.Path, result.CS, result.Info); err != nil {
 			return fmt.Errorf("%w: %s", err, result.Path)
 		}
-		localHash := hex.EncodeToString(rawLocalHash)
 
 		if entry, ok := k.GetEntry(localHash); ok {
 			// No need to read the file, since LocalHash matches

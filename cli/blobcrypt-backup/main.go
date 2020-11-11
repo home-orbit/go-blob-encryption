@@ -72,7 +72,7 @@ func main() {
 
 	// Load the keystore from disk
 	keystore := Keystore{
-		Entries: make(map[string]KeystoreEntry),
+		Entries: make(map[LocalHash]KeystoreEntry),
 	}
 	keystore.Load(*keyfile)
 
@@ -151,7 +151,7 @@ func main() {
 	// The 'Remove' part of the diff is not yet actionable; We must commit first, then filter for garbage.
 	keystore.Commit(diff)
 	if err := keystore.Save(*keyfile); err != nil {
-		logFatal("Could not update Keystore file.")
+		logFatal("Could not update Keystore file: %v", err)
 	}
 
 	if *pubkey != "" {
