@@ -29,6 +29,23 @@ func (h HMAC512) URLChars(n int) string {
 	return base64.RawURLEncoding.EncodeToString(h[:])[:n]
 }
 
+// MarshalJSON implements json.Marshaler
+func (h HMAC512) MarshalJSON() ([]byte, error) {
+	return json.Marshal(h[:])
+}
+
+// UnmarshalJSON implements json.Unmarshaler
+func (h *HMAC512) UnmarshalJSON(data []byte) error {
+	raw := make([]byte, len(h))
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if copy(h[:], raw) != len(h) {
+		return fmt.Errorf("Incorrect hash length in JSON")
+	}
+	return nil
+}
+
 // KeystoreEntry holds change-detection and encryption info for a file.
 type KeystoreEntry struct {
 	LocalHash string
