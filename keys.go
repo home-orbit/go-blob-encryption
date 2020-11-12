@@ -45,8 +45,8 @@ func CheckKey(source io.ReadSeeker, key []byte) (int64, error) {
 	iv := shaSlice256(key)
 	hmacKey := shaSlice256(iv)
 
+	const macSize = int64(sha512.Size)
 	mac := hmac.New(sha512.New, hmacKey)
-	macSize := int64(mac.Size())
 
 	// Skip to the correct number of bytes from the end of the file.
 	trailerPos, err := source.Seek(-macSize, io.SeekEnd)
@@ -55,7 +55,7 @@ func CheckKey(source io.ReadSeeker, key []byte) (int64, error) {
 	}
 
 	// Read the embedded HMAC value
-	embeddedHMAC := make([]byte, mac.Size())
+	embeddedHMAC := make([]byte, macSize)
 	// Docs indicate it's possible to get correct data and EOF in a single call.
 	if l, err := source.Read(embeddedHMAC); l != len(embeddedHMAC) && err != nil {
 		return 0, err
