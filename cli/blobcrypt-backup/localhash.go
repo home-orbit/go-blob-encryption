@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -27,6 +28,10 @@ func (h *LocalHash) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("Incorrect hash length in JSON")
 	}
 	return nil
+}
+
+func (h LocalHash) String() string {
+	return hex.EncodeToString(h[:])
 }
 
 // Set sets the receiver to the SHA256 hash of local filesystem state, an absolute path,

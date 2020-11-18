@@ -120,20 +120,13 @@ func (k *Keystore) GarbageCollectable(entries []KeystoreEntry) []KeystoreEntry {
 }
 
 // Load loads the contents of Keystore from the file at the given path
-func (k *Keystore) Load(path string) error {
+func (k *Keystore) Load(r io.Reader) error {
 	k.mutex.Lock()
 	defer k.mutex.Unlock()
 
-	f, err := os.Open(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return err
-	}
-	defer f.Close()
+	entries := make(map[LocalHash]KeystoreEntry)
 
-	decoder := json.NewDecoder(f)
+	decoder := json.NewDecoder(r)
 	if err := decoder.Decode(&k.Header); err != nil {
 		return err
 	}
@@ -145,8 +138,11 @@ func (k *Keystore) Load(path string) error {
 			}
 			return err
 		}
-		k.Entries[entry.LocalHash] = entry
+		entries[entry.LocalHash] = entry
 	}
+
+	// Replace k.Entries with the new set
+	k.Entries = entries
 
 	return nil
 }
@@ -182,6 +178,20 @@ func (k *Keystore) GetEntry(localHash LocalHash) (KeystoreEntry, bool) {
 	defer k.mutex.Unlock()
 	entry, ok := k.Entries[localHash]
 	return entry, ok
+}
+
+// FindEntryWithHMAC searches the receiver for an entry corresponding to hmac
+// If an entry is found, a copy of the entry is returned, otherwise nil.
+func (k *Keystore) FindEntryWithHMAC(hmac HMAC512) *KeystoreEntry {
+	k.mutex.Lock()
+	defer k.mutex.Unlock()
+
+	for _, entry := range k.Entries {
+		if entry.HMAC == hmac {
+			return &entry
+		}
+	}
+	return nil
 }
 
 // Resolve converts a slice of ScanResults into KeystoreEntries matched against the Keystore.

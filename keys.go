@@ -11,6 +11,8 @@ import (
 const (
 	// KeySize is the size of a symmetric encryption key (equal to sha256.Size)
 	KeySize = sha256.Size
+	// HMACSize is the size of an encrypted file's HMAC suffix (equal to sha512.Size)
+	HMACSize = sha512.Size
 )
 
 // ComputeKey returns the encryption key to be used for an unencrypted source,
@@ -45,7 +47,7 @@ func CheckKey(source io.ReadSeeker, key []byte) (int64, error) {
 	iv := shaSlice256(key)
 	hmacKey := shaSlice256(iv)
 
-	const macSize = int64(sha512.Size)
+	const macSize = int64(HMACSize)
 	mac := hmac.New(sha512.New, hmacKey)
 
 	// Skip to the correct number of bytes from the end of the file.

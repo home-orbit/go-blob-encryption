@@ -1,14 +1,16 @@
 package main
 
 import (
-	"crypto/sha512"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+
+	blobcrypt "github.com/home-orbit/go-blob-encryption"
 )
 
 // HMAC512 is a fixed-length byte slice allowing HMACs to be used as keys.
-type HMAC512 [sha512.Size]byte
+type HMAC512 [blobcrypt.HMACSize]byte
 
 // URLChars returns the first n chars of the URL-compatible, unpadded base64 encoding of the receiver.
 func (h HMAC512) URLChars(n int) string {
@@ -30,4 +32,8 @@ func (h *HMAC512) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("Incorrect hash length in JSON")
 	}
 	return nil
+}
+
+func (h HMAC512) String() string {
+	return hex.EncodeToString(h[:])
 }
