@@ -12,7 +12,7 @@ import (
 	blobcrypt "github.com/home-orbit/go-blob-encryption"
 )
 
-func restoreFile(inFile *os.File, entry *KeystoreEntry, outPath string) error {
+func restoreFile(inFile *os.File, entry *ManifestEntry, outPath string) error {
 	// Decrypt the file to outPath
 	destFile, err := os.Create(outPath)
 	if err != nil {
@@ -61,7 +61,7 @@ func RestoreMain(args []string) error {
 		logFatal("Cannot read %s", *manifestPath)
 	}
 
-	var manifest Keystore
+	var manifest Manifest
 	if *keyfile != "" {
 		symmetricKey, err := ioutil.ReadFile(*keyfile)
 		if err != nil {

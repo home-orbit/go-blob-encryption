@@ -14,7 +14,7 @@ const (
 )
 
 // EncryptKey returns the given symmetric key encrypted with OAEP, using pubkey.
-// This allows random encryption keys for secure files, like the keystore, to be included
+// This allows random encryption keys for secure files, like the manifest, to be included
 // in backups, since only the private key holder can decrypt them.
 //
 // OAEP params use a sha256 hash for the random oracle, and crypto/rand.Reader as the entropy source.

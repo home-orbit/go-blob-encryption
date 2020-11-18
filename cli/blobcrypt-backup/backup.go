@@ -17,8 +17,8 @@ func BackupMain(args []string) error {
 	// Parse command-line arguments. By default, encrypt the file at arg[0]
 	flags := flag.NewFlagSet("backup", flag.ContinueOnError)
 	userHomeDir, _ := os.UserHomeDir()
-	keyfile := flags.String("keyfile", filepath.Join(userHomeDir, defaultKeystoreName), "Path to the keystore file.")
-	pubkey := flags.String("pubkey", "", "Path to an RSA public key PEM. When present, keystore is added to the backup set using OAEP encryption")
+	manifestPath := flags.String("manifest", filepath.Join(userHomeDir, localManifestName), "Path to the unencrypted, local manifest file used for incremental backups.")
+	pubkey := flags.String("pubkey", "", "Path to an RSA public key PEM. When present, manifest is added to the backup set using OAEP encryption")
 
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -52,34 +52,35 @@ func BackupMain(args []string) error {
 		return err
 	}
 
-	// Load the keystore from disk
-	keystoreFile, err := os.Open(*keyfile)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
+	// Load the manifest from disk
+	var manifest Manifest
+	manifestFile, err := os.Open(*manifestPath)
+	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	defer keystoreFile.Close()
+	defer manifestFile.Close()
 
-	var keystore Keystore
-	keystore.Load(keystoreFile)
+	if err != nil {
+		manifest.Load(manifestFile)
+	} else {
+		manifest.Init()
+	}
 
 	// Match the scanned results to entries in the file
-	entries, err := keystore.Resolve(results)
+	entries, err := manifest.Resolve(results)
 	if err != nil {
 		panic(err)
 	}
 
 	// Get prospective changeset containing items to update or delete
-	diff := keystore.Diff(inPath, entries)
+	diff := manifest.Diff(inPath, entries)
 
 	if diff.IsEmpty() {
 		fmt.Println("No changes detected.")
 		os.Exit(0)
 	}
 
-	// Create a channel to send KeystoreEntry structs to a worker pool
+	// Create a channel to send ManifestEntry structs to a worker pool
 	updates := make(chan interface{})
 	go func() {
 		defer close(updates)
@@ -91,8 +92,8 @@ func BackupMain(args []string) error {
 
 	// Run a set of parallel workers and collect their return values
 	errs := RunWorkers(0, updates, func(i interface{}) interface{} {
-		// func(KeystoreEntry) returns error or nil
-		entry, isEntry := i.(KeystoreEntry)
+		// func(ManifestEntry) returns error or nil
+		entry, isEntry := i.(ManifestEntry)
 		if !isEntry {
 			return fmt.Errorf("Unrecognized Input: %v", i)
 		}
@@ -134,21 +135,21 @@ func BackupMain(args []string) error {
 		for _, err := range errs {
 			fmt.Fprintln(os.Stderr, err)
 		}
-		logFatal("Errors occurred, not updating keystore.")
+		logFatal("Errors occurred, not updating manifest.")
 	}
 
 	// The 'Remove' part of the diff is not yet actionable; We must commit first, then filter for garbage.
-	keystore.Commit(diff)
-	if err := keystore.Save(*keyfile); err != nil {
-		logFatal("Could not update Keystore file: %v", err)
+	manifest.Commit(diff)
+	if err := manifest.Save(*manifestPath); err != nil {
+		logFatal("Could not update Manifest file: %v", err)
 	}
 
 	if *pubkey != "" {
-		// Encrypt keystore with a fully random key, and write a copy of that key
+		// Encrypt manifest with a fully random key, and write a copy of that key
 		// to a corresponding file with RSA OAEP asymmetric encryption.
-		// Only the private key holder may decrypt the random key used to access the keystore.
+		// Only the private key holder may decrypt the random key used to access the manifest.
 
-		// TODO: Provide options for the keystore and/or its keyfile to be placed in arbitrary location(s).
+		// TODO: Provide options for the manifest and/or its keyfile to be placed in arbitrary location(s).
 
 		// Load the public key from the given file. Key must be at least minRSAKeySize.
 		rsaPubkey, err := LoadPublicKey(*pubkey)
@@ -168,7 +169,7 @@ func BackupMain(args []string) error {
 		dstKeyPath := filepath.Join(outPath, "index.key")
 
 		// First, encrypt the index key to a file.
-		// If this fails, there's no point in encrypting keystore with it.
+		// If this fails, there's no point in encrypting manifest with it.
 		encipheredKey, err := EncryptKey(randomKey, rsaPubkey)
 		if err != nil {
 			return err
@@ -179,7 +180,7 @@ func BackupMain(args []string) error {
 			return err
 		}
 
-		sourceFile, err := os.Open(*keyfile)
+		sourceFile, err := os.Open(*manifestPath)
 		if err != nil {
 			return err
 		}
@@ -201,9 +202,9 @@ func BackupMain(args []string) error {
 		}
 	}
 
-	// Now that keystore is current, get a list of all HMACs that are still valid.
+	// Now that manifest is current, get a list of all HMACs that are still valid.
 	// Remember that files may exist in the backup set that are not part of the current directory.
-	for _, entry := range keystore.GarbageCollectable(diff.Remove) {
+	for _, entry := range manifest.GarbageCollectable(diff.Remove) {
 		outFilePath := filepath.Join(outPath, entry.HMAC.URLChars(filenameLen))
 		_ = os.Remove(outFilePath)
 		fmt.Printf("Removed %s (%s)\n", entry.HMAC.URLChars(filenameLen), entry.Path)

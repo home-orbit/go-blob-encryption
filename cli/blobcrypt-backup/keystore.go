@@ -13,38 +13,38 @@ import (
 	blobcrypt "github.com/home-orbit/go-blob-encryption"
 )
 
-// Keystore defines a file that persists state across backups.
-// Keystore files should never be backed up to a public location.
-type Keystore struct {
+// Manifest defines a file that persists state across backups.
+// Manifest files should never be backed up to a public location.
+type Manifest struct {
 	Header  struct{} // For future use
-	Entries map[LocalHash]KeystoreEntry
+	Entries map[LocalHash]ManifestEntry
 	mutex   sync.Mutex
 }
 
-// KeystoreEntry holds change-detection and encryption info for a file.
-type KeystoreEntry struct {
+// ManifestEntry holds change-detection and encryption info for a file.
+type ManifestEntry struct {
 	LocalHash LocalHash
 	Path      string
 	Key       []byte
 	HMAC      HMAC512
 }
 
-// KeystoreDiff describes a set of prospective changes to a Keystore.
-type KeystoreDiff struct {
-	Change []KeystoreEntry
-	Remove []KeystoreEntry
+// ManifestDiff describes a set of prospective changes to a Manifest.
+type ManifestDiff struct {
+	Change []ManifestEntry
+	Remove []ManifestEntry
 }
 
-// IsEmpty returns true when KeystoreDiff contains no actionable changes.
-func (d *KeystoreDiff) IsEmpty() bool {
+// IsEmpty returns true when ManifestDiff contains no actionable changes.
+func (d *ManifestDiff) IsEmpty() bool {
 	return len(d.Change) == 0 && len(d.Remove) == 0
 }
 
 // Diff replaces all entries under the given path with the given entries.
-// Returns a KeystoreDiff containing updated and removed entries under path.
+// Returns a ManifestDiff containing updated and removed entries under path.
 // If an entry has the same LocalHash as an entry in the cache, it is not included in the diff.
-// After changes are processed, the diff may be passed to Commit to modify Keystore.
-func (k *Keystore) Diff(path string, entries []KeystoreEntry) KeystoreDiff {
+// After changes are processed, the diff may be passed to Commit to modify Manifest.
+func (k *Manifest) Diff(path string, entries []ManifestEntry) ManifestDiff {
 	k.mutex.Lock()
 	defer k.mutex.Unlock()
 
@@ -59,7 +59,7 @@ func (k *Keystore) Diff(path string, entries []KeystoreEntry) KeystoreDiff {
 		inputMap[entries[idx].LocalHash] = struct{}{}
 	}
 
-	var diff KeystoreDiff
+	var diff ManifestDiff
 	for localHash, entry := range k.Entries {
 		if strings.HasPrefix(entry.Path, path) {
 			if _, ok := inputMap[localHash]; ok {
@@ -83,8 +83,8 @@ func (k *Keystore) Diff(path string, entries []KeystoreEntry) KeystoreDiff {
 	return diff
 }
 
-// Commit updates the Keystore's Entries to reflect a set of changes that have been processed.
-func (k *Keystore) Commit(diff KeystoreDiff) {
+// Commit updates the Manifest's Entries to reflect a set of changes that have been processed.
+func (k *Manifest) Commit(diff ManifestDiff) {
 	k.mutex.Lock()
 	defer k.mutex.Unlock()
 
@@ -97,7 +97,7 @@ func (k *Keystore) Commit(diff KeystoreDiff) {
 }
 
 // GarbageCollectable returns the subset of entries whose HMACs no longer apppear in the list.
-func (k *Keystore) GarbageCollectable(entries []KeystoreEntry) []KeystoreEntry {
+func (k *Manifest) GarbageCollectable(entries []ManifestEntry) []ManifestEntry {
 	// Build a map of HMACs in the input list
 	collectable := make(map[HMAC512]struct{}, len(entries))
 	for idx := range entries {
@@ -110,7 +110,7 @@ func (k *Keystore) GarbageCollectable(entries []KeystoreEntry) []KeystoreEntry {
 	}
 
 	// Filter input and return the subset that are no longer retained
-	var result []KeystoreEntry
+	var result []ManifestEntry
 	for _, entry := range entries {
 		if _, ok := collectable[entry.HMAC]; ok {
 			result = append(result, entry)
@@ -119,19 +119,25 @@ func (k *Keystore) GarbageCollectable(entries []KeystoreEntry) []KeystoreEntry {
 	return result
 }
 
-// Load loads the contents of Keystore from the file at the given path
-func (k *Keystore) Load(r io.Reader) error {
+// Init initializes a Manifest to the empty state
+func (k *Manifest) Init() {
+	k.Header = struct{}{}
+	k.Entries = make(map[LocalHash]ManifestEntry)
+}
+
+// Load loads the contents of Manifest from the file at the given path
+func (k *Manifest) Load(r io.Reader) error {
 	k.mutex.Lock()
 	defer k.mutex.Unlock()
 
-	entries := make(map[LocalHash]KeystoreEntry)
+	entries := make(map[LocalHash]ManifestEntry)
 
 	decoder := json.NewDecoder(r)
 	if err := decoder.Decode(&k.Header); err != nil {
 		return err
 	}
 	for {
-		var entry KeystoreEntry
+		var entry ManifestEntry
 		if err := decoder.Decode(&entry); err != nil {
 			if errors.Is(err, io.EOF) {
 				break
@@ -147,8 +153,8 @@ func (k *Keystore) Load(r io.Reader) error {
 	return nil
 }
 
-// Save writes the Keystore to a file at the given path
-func (k *Keystore) Save(path string) error {
+// Save writes the Manifest to a file at the given path
+func (k *Manifest) Save(path string) error {
 	k.mutex.Lock()
 	defer k.mutex.Unlock()
 
@@ -173,7 +179,7 @@ func (k *Keystore) Save(path string) error {
 }
 
 // GetEntry is a threadsafe accessor for Entries
-func (k *Keystore) GetEntry(localHash LocalHash) (KeystoreEntry, bool) {
+func (k *Manifest) GetEntry(localHash LocalHash) (ManifestEntry, bool) {
 	k.mutex.Lock()
 	defer k.mutex.Unlock()
 	entry, ok := k.Entries[localHash]
@@ -182,7 +188,7 @@ func (k *Keystore) GetEntry(localHash LocalHash) (KeystoreEntry, bool) {
 
 // FindEntryWithHMAC searches the receiver for an entry corresponding to hmac
 // If an entry is found, a copy of the entry is returned, otherwise nil.
-func (k *Keystore) FindEntryWithHMAC(hmac HMAC512) *KeystoreEntry {
+func (k *Manifest) FindEntryWithHMAC(hmac HMAC512) *ManifestEntry {
 	k.mutex.Lock()
 	defer k.mutex.Unlock()
 
@@ -194,11 +200,11 @@ func (k *Keystore) FindEntryWithHMAC(hmac HMAC512) *KeystoreEntry {
 	return nil
 }
 
-// Resolve converts a slice of ScanResults into KeystoreEntries matched against the Keystore.
+// Resolve converts a slice of ScanResults into ManifestEntries matched against the Manifest.
 // If a file is not already present in the cache, or may have changed, it is
 // read in its entirety on a worker pool to produce its Key and HMAC.
 // This method does not write encrypted files to disk.
-func (k *Keystore) Resolve(results []ScanResult) ([]KeystoreEntry, error) {
+func (k *Manifest) Resolve(results []ScanResult) ([]ManifestEntry, error) {
 	// Create a channel and start sending all ScanResults into it.
 	c := make(chan interface{})
 	go func() {
@@ -209,7 +215,7 @@ func (k *Keystore) Resolve(results []ScanResult) ([]KeystoreEntry, error) {
 	}()
 
 	workerResults := RunWorkers(0, c, func(i interface{}) interface{} {
-		// func(ScanResult) returns KeystoreEntry or error
+		// func(ScanResult) returns ManifestEntry or error
 		result, isResult := i.(ScanResult)
 		if !isResult {
 			return fmt.Errorf("Unrecognized Input: %v", i)
@@ -248,7 +254,7 @@ func (k *Keystore) Resolve(results []ScanResult) ([]KeystoreEntry, error) {
 		var hmacFixed HMAC512
 		copy(hmacFixed[:], hmac)
 
-		return KeystoreEntry{
+		return ManifestEntry{
 			Path:      result.Path,
 			Key:       key,
 			HMAC:      hmacFixed,
@@ -256,10 +262,10 @@ func (k *Keystore) Resolve(results []ScanResult) ([]KeystoreEntry, error) {
 		}
 	})
 
-	entries := make([]KeystoreEntry, 0, len(results))
+	entries := make([]ManifestEntry, 0, len(results))
 	for _, wResult := range workerResults {
 		switch obj := wResult.(type) {
-		case KeystoreEntry:
+		case ManifestEntry:
 			entries = append(entries, obj)
 		case error:
 			return nil, obj

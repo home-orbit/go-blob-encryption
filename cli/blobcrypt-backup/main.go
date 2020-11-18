@@ -22,7 +22,7 @@ import (
 //  blobcrypt-backup restore [-keyfile path/to/decrypted-index] DEST -- FILENAME GLOB GLOB
 
 const (
-	defaultKeystoreName = "blobcrypt-keystore.json"
+	localManifestName = "blobcrypt-manifest.json"
 	// Filenames use 40 base64 chars for 240 bits of collision resistance
 	// On case-insensitive filesystems, this is slightly less than 210 bits.
 	filenameLen = 40
@@ -40,6 +40,7 @@ func main() {
 		fmt.Printf("Usage: %s backup|restore [opts] SOURCE DEST\n", filepath.Base(os.Args[0]))
 		fmt.Println()
 		BackupMain([]string{"-help"})
+		fmt.Println()
 		RestoreMain([]string{"-help"})
 	}
 	// flag.Parse exits on error by default
