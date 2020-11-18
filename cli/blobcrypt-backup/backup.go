@@ -1,11 +1,12 @@
 package main
 
 import (
+	"archive/tar"
 	"crypto/hmac"
 	"crypto/rand"
+	"encoding/base64"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 
@@ -165,30 +166,43 @@ func BackupMain(args []string) error {
 			return err
 		}
 
-		dstPath := filepath.Join(outPath, "index")
-		dstKeyPath := filepath.Join(outPath, "index.key")
-
-		// First, encrypt the index key to a file.
-		// If this fails, there's no point in encrypting manifest with it.
+		// Encrypt the key so that it can be safely added alongside the content.
 		encipheredKey, err := EncryptKey(randomKey, rsaPubkey)
 		if err != nil {
 			return err
 		}
 
-		err = ioutil.WriteFile(dstKeyPath, encipheredKey, 0644)
+		// Create and open the destination file
+		dstPath := filepath.Join(outPath, "manifest-encrypted.tar")
+		outFile, err := os.Create(dstPath)
 		if err != nil {
 			return err
 		}
+
+		tarWriter := tar.NewWriter(outFile)
 
 		sourceFile, err := os.Open(*manifestPath)
 		if err != nil {
 			return err
 		}
 
-		outFile, err := os.Create(dstPath)
+		sourceInfo, err := sourceFile.Stat()
 		if err != nil {
 			return err
 		}
+
+		header, err := tar.FileInfoHeader(sourceInfo, "")
+		header.Name = "manifest.json"
+		// Size of sourceFile will be increased by exactly HMACSize when writing
+		header.Size += blobcrypt.HMACSize
+		header.PAXRecords = map[string]string{
+			// key contains the asymmetrically-encrypted key for the body bytes.
+			// There's no utility in making this a file record since openssl can't decrypt OAEP anyway.
+			"BLOBCRYPT.key":      base64.RawStdEncoding.EncodeToString(encipheredKey),
+			"BLOBCRYPT.key.type": "oaep-aes256",
+		}
+
+		tarWriter.WriteHeader(header)
 
 		writer := blobcrypt.Writer{
 			Source: sourceFile,
@@ -196,8 +210,12 @@ func BackupMain(args []string) error {
 		}
 
 		// TODO: Write output files atomically
-		_, err = writer.Encrypt(outFile)
+		_, err = writer.Encrypt(tarWriter)
 		if err != nil {
+			return err
+		}
+
+		if err := tarWriter.Close(); err != nil {
 			return err
 		}
 	}

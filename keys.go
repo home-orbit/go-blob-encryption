@@ -4,7 +4,6 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"crypto/sha512"
-	"fmt"
 	"io"
 )
 
@@ -77,7 +76,7 @@ func CheckKey(source io.ReadSeeker, key []byte) (int64, error) {
 
 	// Require the embedded HMAC to match the one we just calculated.
 	if !hmac.Equal(bodyHMAC, embeddedHMAC) {
-		return 0, fmt.Errorf("File signature invalid (HMAC)")
+		return 0, HMACInvalid
 	}
 
 	// Reset source position before returning trailer offset

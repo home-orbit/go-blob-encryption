@@ -1,11 +1,12 @@
 package main
 
 import (
-	"bytes"
+	"archive/tar"
+	"encoding/base64"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 
@@ -32,8 +33,7 @@ func restoreFile(inFile *os.File, entry *ManifestEntry, outPath string) error {
 func RestoreMain(args []string) error {
 	// Parse command-line arguments. By default, encrypt the file at arg[0]
 	flags := flag.NewFlagSet("restore", flag.ContinueOnError)
-	manifestPath := flags.String("manifest", "", "Path to the backup manifest. If manifest is encrypted, keyfile is required.")
-	keyfile := flags.String("keyfile", "", "Path to a file containing the manifest's decryption key. If key is encrypted, privatekey is required.")
+	manifestPath := flags.String("manifest", "", "Path to the backup manifest. If manifest is encrypted, privatekey is required.")
 	privatekey := flags.String("privatekey", "", "Path to an RSA private key PEM. Used to decrypt the manifest's keyfile.")
 
 	flags.Usage = func() {
@@ -62,46 +62,62 @@ func RestoreMain(args []string) error {
 	}
 
 	var manifest Manifest
-	if *keyfile != "" {
-		symmetricKey, err := ioutil.ReadFile(*keyfile)
-		if err != nil {
+	tarReader := tar.NewReader(manifestFile)
+	header, err := tarReader.Next()
+	if errors.Is(err, tar.ErrHeader) {
+		// This is probably not a tar file after all. Try to read JSON.
+		manifestFile.Seek(0, io.SeekStart)
+		if err := manifest.Load(manifestFile); err != nil {
 			return err
 		}
 
-		// If a private key is present, recover the symmetric key.
-		// This may prompt the user for their password.
-		if *privatekey != "" {
-			priv, err := LoadPrivateKey(*privatekey)
-			if err != nil {
-				return err
-			}
-			fmt.Printf("Loaded %d-bit RSA Private Key\n", priv.Size()*8)
-			symmetricKey, err = DecryptKey(symmetricKey, priv)
-			if err != nil {
-				return err
-			}
-		}
-
-		// At this point, symmetric key should be ready for use.
-		reader, err := blobcrypt.NewReader(manifestFile, symmetricKey)
-		if err != nil {
-			return err
-		}
-		// Decrypt the manifest into a buffer. It must fit in memory.
-		var buffer bytes.Buffer
-		err = reader.Decrypt(&buffer)
-		if err != nil {
-			return err
-		}
-
-		// Load te manifest from that data.
-		err = manifest.Load(&buffer)
-		if err != nil {
-			return err
-		}
 	} else {
-		// Try to read the file without encryption
-		manifest.Load(manifestFile)
+		for ; err == nil; header, err = tarReader.Next() {
+			// Check to see if this entry is encrypted with our supported scheme.
+			if keyString, keyOK := header.PAXRecords["BLOBCRYPT.key"]; keyOK {
+				// Recover the raw bytes of the key, which may itself be encrypted.
+				key, err := base64.RawStdEncoding.DecodeString(keyString)
+				if err != nil {
+					return err
+				}
+
+				keyType := header.PAXRecords["BLOBCRYPT.key.type"]
+				switch keyType {
+				case "oaep-aes256":
+					if *privatekey == "" {
+						return fmt.Errorf("Private Key is required to decrypt manifest")
+					}
+					// Loading the private key may prompt the user for their passphrase.
+					priv, err := LoadPrivateKey(*privatekey)
+					if err != nil {
+						return err
+					}
+					fmt.Printf("Loaded %d-bit RSA Private Key\n", priv.Size()*8)
+
+					// Decrypt the symmetric key used to encipher the main file.
+					key, err = DecryptKey(key, priv)
+					if err != nil {
+						return err
+					}
+				default:
+					return fmt.Errorf("Unrecognized Key Type: %s", keyType)
+				}
+
+				// IFF successful, bufferReader will contain the decrypted manifest.
+				bufferReader, err := blobcrypt.DecryptAndCheckKey(tarReader, key)
+				if err != nil {
+					return err
+				}
+				if err := manifest.Load(bufferReader); err != nil {
+					return err
+				}
+			} else {
+				// Unencrypted file encountered in TAR
+				if err := manifest.Load(tarReader); err != nil {
+					return err
+				}
+			}
+		}
 	}
 
 	// Read inPath from the arguments list
