@@ -13,13 +13,11 @@ import (
 	blobcrypt "github.com/home-orbit/go-blob-encryption"
 )
 
-// BackupMain is the main function when the first CLI argument is "backup" or is omitted.
+// BackupMain is the main function when the first CLI argument is "backup".
 func BackupMain(args []string) error {
-	// Parse command-line arguments. By default, encrypt the file at arg[0]
 	flags := flag.NewFlagSet("backup", flag.ContinueOnError)
-	userHomeDir, _ := os.UserHomeDir()
-	manifestPath := flags.String("manifest", filepath.Join(userHomeDir, localManifestName), "Path to the unencrypted, local manifest file used for incremental backups.")
-	pubkey := flags.String("pubkey", "", "Path to an RSA public key PEM. When present, manifest is added to the backup set using OAEP encryption")
+	keycache := flags.String("keycache", keyCacheName, "Path to the local cache of keys for incremental backups. If this is a relative path, it is relative to SOURCE.")
+	pubkey := flags.String("pubkey", "", "Path to an RSA public key PEM. When present, an encrypted manifest.tar is added to the backup set.")
 
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -34,6 +32,10 @@ func BackupMain(args []string) error {
 	inPath, err := filepath.Abs(flags.Arg(0))
 	if err != nil {
 		return err
+	}
+
+	if !filepath.IsAbs(*keycache) {
+		*keycache = filepath.Clean(filepath.Join(inPath, *keycache))
 	}
 
 	outPath, err := filepath.Abs(flags.Arg(1))
@@ -55,20 +57,22 @@ func BackupMain(args []string) error {
 
 	// Load the manifest from disk
 	var manifest Manifest
-	manifestFile, err := os.Open(*manifestPath)
+	manifestFile, err := os.Open(*keycache)
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
 	defer manifestFile.Close()
 
-	if err != nil {
-		manifest.Load(manifestFile)
+	if err == nil {
+		if err := manifest.Load(manifestFile); err != nil {
+			return err
+		}
 	} else {
 		manifest.Init()
 	}
 
 	// Match the scanned results to entries in the file
-	entries, err := manifest.Resolve(results)
+	entries, err := manifest.Resolve(inPath, results)
 	if err != nil {
 		panic(err)
 	}
@@ -107,7 +111,7 @@ func BackupMain(args []string) error {
 
 		if _, err := os.Stat(outFilePath); os.IsNotExist(err) {
 			// Encrypt files that don't exist in the output directory
-			sourceFile, err := os.Open(entry.Path)
+			sourceFile, err := os.Open(filepath.Join(inPath, entry.Path))
 			if err != nil {
 				return err
 			}
@@ -141,7 +145,7 @@ func BackupMain(args []string) error {
 
 	// The 'Remove' part of the diff is not yet actionable; We must commit first, then filter for garbage.
 	manifest.Commit(diff)
-	if err := manifest.Save(*manifestPath); err != nil {
+	if err := manifest.Save(*keycache); err != nil {
 		logFatal("Could not update Manifest file: %v", err)
 	}
 
@@ -173,7 +177,7 @@ func BackupMain(args []string) error {
 		}
 
 		// Create and open the destination file
-		dstPath := filepath.Join(outPath, "manifest-encrypted.tar")
+		dstPath := filepath.Join(outPath, encryptedManifestName)
 		outFile, err := os.Create(dstPath)
 		if err != nil {
 			return err
@@ -181,7 +185,7 @@ func BackupMain(args []string) error {
 
 		tarWriter := tar.NewWriter(outFile)
 
-		sourceFile, err := os.Open(*manifestPath)
+		sourceFile, err := os.Open(*keycache)
 		if err != nil {
 			return err
 		}

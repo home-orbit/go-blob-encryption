@@ -22,7 +22,10 @@ import (
 //  blobcrypt-backup restore [-keyfile path/to/decrypted-index] DEST -- FILENAME GLOB GLOB
 
 const (
-	localManifestName = "blobcrypt-manifest.json"
+	// keyCacheName is the default source-relative path to the cache of per-file keys.
+	keyCacheName = ".blobcrypt-cache.json"
+	// encryptedManifestName is the default name of an encrypted manifest TAR in the backup.
+	encryptedManifestName = "manifest-encrypted.tar"
 	// Filenames use 40 base64 chars for 240 bits of collision resistance
 	// On case-insensitive filesystems, this is slightly less than 210 bits.
 	filenameLen = 40

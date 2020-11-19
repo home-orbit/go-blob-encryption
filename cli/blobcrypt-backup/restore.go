@@ -15,6 +15,7 @@ import (
 
 func restoreFile(inFile *os.File, entry *ManifestEntry, outPath string) error {
 	// Decrypt the file to outPath
+	os.MkdirAll(filepath.Dir(outPath), 0755)
 	destFile, err := os.Create(outPath)
 	if err != nil {
 		return err
@@ -33,7 +34,7 @@ func restoreFile(inFile *os.File, entry *ManifestEntry, outPath string) error {
 func RestoreMain(args []string) error {
 	// Parse command-line arguments. By default, encrypt the file at arg[0]
 	flags := flag.NewFlagSet("restore", flag.ContinueOnError)
-	manifestPath := flags.String("manifest", "", "Path to the backup manifest. If manifest is encrypted, privatekey is required.")
+	manifestPath := flags.String("manifest", encryptedManifestName, "Path to the backup manifest. If manifest is encrypted, privatekey is required. If this is a relative path, it is relative to SOURCE.")
 	privatekey := flags.String("privatekey", "", "Path to an RSA private key PEM. Used to decrypt the manifest's keyfile.")
 
 	flags.Usage = func() {
@@ -53,12 +54,36 @@ func RestoreMain(args []string) error {
 		os.Exit(1)
 	}
 
-	if *manifestPath == "" {
-		logFatal("-manifest is required to restore files")
+	// Read inPath from the arguments list
+	inPath, err := filepath.Abs(flags.Arg(0))
+	if err != nil {
+		return err
 	}
+
+	// Read outPath from the arguments list.
+	// If this is a directory, it is not created in advance.
+	outPath, err := filepath.Abs(flags.Arg(1))
+	if err != nil {
+		return err
+	}
+
+	inStat, err := os.Stat(inPath)
+	if err != nil {
+		return err
+	}
+
+	outStat, err := os.Stat(outPath)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+
+	if !filepath.IsAbs(*manifestPath) {
+		*manifestPath = filepath.Clean(filepath.Join(inPath, *manifestPath))
+	}
+
 	manifestFile, err := os.Open(*manifestPath)
 	if err != nil {
-		logFatal("Cannot read %s", *manifestPath)
+		return fmt.Errorf("Cannot read %s", *manifestPath)
 	}
 
 	var manifest Manifest
@@ -120,29 +145,6 @@ func RestoreMain(args []string) error {
 		}
 	}
 
-	// Read inPath from the arguments list
-	inPath, err := filepath.Abs(flags.Arg(0))
-	if err != nil {
-		return err
-	}
-
-	// Read outPath from the arguments list.
-	// If this is a directory, it is not created in advance.
-	outPath, err := filepath.Abs(flags.Arg(1))
-	if err != nil {
-		return err
-	}
-
-	inStat, err := os.Stat(inPath)
-	if err != nil {
-		return err
-	}
-
-	outStat, err := os.Stat(outPath)
-	if err != nil && !os.IsNotExist(err) {
-		return err
-	}
-
 	if inStat.IsDir() {
 		// Decrypt all files from the manifest
 		if !outStat.IsDir() {
@@ -162,7 +164,7 @@ func RestoreMain(args []string) error {
 			} else if err != nil {
 				return err
 			}
-			fileOut := filepath.Join(outPath, filepath.Base(entry.Path))
+			fileOut := filepath.Join(outPath, entry.Path)
 			err = restoreFile(inFile, &entry, fileOut)
 			if err != nil {
 				return err

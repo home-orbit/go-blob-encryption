@@ -60,8 +60,13 @@ func (s *Scanner) Scan(dir string) ([]ScanResult, error) {
 			return nil
 		}
 
+		relPath, err := filepath.Rel(dir, path)
+		if err != nil {
+			return err
+		}
+
 		result := ScanResult{
-			Path:  path,
+			Path:  relPath,
 			Info:  info,
 			Error: errIn,
 		}

@@ -7,6 +7,7 @@ import (
 	"io"
 	"io/ioutil"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -204,7 +205,7 @@ func (k *Manifest) FindEntryWithHMAC(hmac HMAC512) *ManifestEntry {
 // If a file is not already present in the cache, or may have changed, it is
 // read in its entirety on a worker pool to produce its Key and HMAC.
 // This method does not write encrypted files to disk.
-func (k *Manifest) Resolve(results []ScanResult) ([]ManifestEntry, error) {
+func (k *Manifest) Resolve(dir string, results []ScanResult) ([]ManifestEntry, error) {
 	// Create a channel and start sending all ScanResults into it.
 	c := make(chan interface{})
 	go func() {
@@ -232,7 +233,7 @@ func (k *Manifest) Resolve(results []ScanResult) ([]ManifestEntry, error) {
 		}
 
 		// Create a new entry for this file
-		f, err := os.Open(result.Path)
+		f, err := os.Open(filepath.Join(dir, result.Path))
 		if err != nil {
 			return fmt.Errorf("%w: %s", err, result.Path)
 		}
